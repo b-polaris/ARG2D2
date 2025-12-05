@@ -1,0 +1,70 @@
+name: Analizar proyectos con ARG2D2
+
+on:
+  push:
+    paths:
+      - 'proyectos/**.docx'
+
+jobs:
+  analizar:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Clonar el repositorio
+      uses: actions/checkout@v3
+
+    - name: Instalar dependencias necesarias
+      run: |
+        sudo apt update
+        sudo apt install -y pandoc unzip poppler-utils
+        npm install openai mammoth
+
+    - name: Procesar archivos .docx
+      run: |
+        mkdir -p reportes
+        for file in proyectos/*.docx; do
+          name=$(basename "$file" .docx)
+          echo "Procesando $name..."
+
+          # Convertir .docx a texto plano
+          node -e "
+            import fs from 'fs';
+            import mammoth from 'mammoth';
+            mammoth.extractRawText({path: '$file'}).then(result => {
+              fs.writeFileSync('temp.txt', result.value);
+            });
+          "
+
+          texto=$(cat temp.txt | tr '\n' ' ' | sed 's/"/\\"/g')
+
+          # Crear prompt
+          prompt='Realiza las ETAPAS 1, 2 y 3 sobre el siguiente proyecto legislativo. Texto: '"$texto"
+
+          respuesta=$(node -e "
+            import OpenAI from 'openai';
+            const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+            const run = async () => {
+              const chat = await openai.chat.completions.create({
+                model: 'gpt-3.5-turbo',
+                messages: [
+                  { role: 'system', content: 'Sos ARG2D2, experto en técnica legislativa y constitucional.' },
+                  { role: 'user', content: \`${prompt}\` }
+                ]
+              });
+              console.log(chat.choices[0].message.content);
+            };
+            run();
+          ")
+
+          echo "# Informe ARG2D2 – $name" > reportes/INFORME_$name.md
+          echo "" >> reportes/INFORME_$name.md
+          echo "$respuesta" >> reportes/INFORME_$name.md
+        done
+
+    - name: Subir informes al repositorio
+      uses: stefanzweifel/git-auto-commit-action@v5
+      with:
+        commit_message: '📄 Informe generado automáticamente por ARG2D2'
+        file_pattern: reportes/*.md
+
+    env:
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
