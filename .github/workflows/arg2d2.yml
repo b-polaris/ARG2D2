@@ -22,7 +22,7 @@ jobs:
       run: |
         mkdir -p reportes
         for file in proyectos/*.docx; do
-          name=$(basename "$file" .docx)
+          name=$(basename "$file" .docx | tr '[:upper:]' '[:lower:]' | tr ' ' '_' | tr -dc '[:alnum:]_')
           echo "Procesando $name..."
 
           # Convertir .docx a texto plano
